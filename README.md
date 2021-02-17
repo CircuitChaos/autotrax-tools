@@ -1,6 +1,6 @@
 # autotrax-tools
 
-A set of tools which aid in using DOS Autotrax software.
+A set of tools to aid in using DOS Autotrax software.
 
 ## Objective
 
