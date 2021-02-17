@@ -1,0 +1,177 @@
+#!/usr/bin/env python3
+
+import pcbfile4.pcbfile4 as pcbfile4
+import pcbfile4.types as pcbfile4_types
+import sys
+
+class Drill:
+    class Pad:
+        name = None
+
+        def __init__(self, name):
+            self.name = name
+
+    class Component:
+        pattern     = None
+        designator  = None
+        comment     = None
+        count       = None
+
+        def __init__(self, pattern, designator, comment):
+            self.pattern    = pattern
+            self.designator = designator
+            self.comment    = comment
+            self.count      = 0
+
+        def add_hole(self):
+            self.count = self.count + 1
+
+        def get_pattern(self):
+            return self.pattern
+
+        def get_designator(self):
+            return self.designator
+
+        def get_comment(self):
+            return self.comment
+
+        def get_hole_count(self):
+            return self.count
+
+    pads = None
+    vias = None
+    components = None
+    hole_count = None
+
+    def __init__(self):
+        self.pads = []
+        self.vias = 0
+        self.components = {}
+        self.hole_count = 0
+
+    def get_component_id(self, pattern, designator, comment):
+        # affects sorting
+        return "D%s P%s C%s" % (designator, pattern, comment)
+
+    def add_pad(self, text):
+        self.pads.append(text)
+        self.hole_count = self.hole_count + 1
+
+    def add_via(self):
+        self.vias = self.vias + 1
+        self.hole_count = self.hole_count + 1
+
+    def add_comp_hole(self, pattern, designator, comment):
+        id = self.get_component_id(pattern, designator, comment)
+        if not id in self.components:
+            self.components[id] = self.Component(pattern, designator, comment)
+        self.components[id].add_hole()
+        self.hole_count = self.hole_count + 1
+
+    def get_hole_count(self):
+        return self.hole_count
+
+    def get_pads(self):
+        return self.pads
+
+    def get_vias_count(self):
+        return self.vias
+
+    def get_components(self):
+        return self.components
+
+class Drills:
+    drills = None
+
+    def __init__(self):
+        self.drills = {}
+
+    def add_drill_if_not_exists(self, hole_size):
+        if hole_size == 0:
+            return False
+        if not hole_size in self.drills:
+            self.drills[hole_size] = Drill()
+        return True
+
+    def add_pad(self, hole_size, text):
+        if not self.add_drill_if_not_exists(hole_size):
+            return
+        self.drills[hole_size].add_pad(text)
+
+    def add_via(self, hole_size):
+        if not self.add_drill_if_not_exists(hole_size):
+            return
+        self.drills[hole_size].add_via()
+
+    def add_comp_hole(self, pattern, designator, comment, hole_size):
+        if not self.add_drill_if_not_exists(hole_size):
+            return
+        self.drills[hole_size].add_comp_hole(pattern, designator, comment)
+
+    def get_drills(self):
+        return self.drills
+
+def load_pcb(argv):
+    pcb = pcbfile4.PcbFile4()
+
+    if len(argv) == 1:
+        pcb.load_stdin()
+    elif len(sys.argv) == 2:
+        pcb.load_file(argv[1])
+    else:
+        sys.exit("Usage: pcb-drill <pcbfile.pcb> or pcb-drill < <pcbfile.pcb>")
+
+    return pcb
+
+def add_elements(drills, pcb):
+    for element in pcb.get_elements():
+        if element.type == pcbfile4_types.ElementType.PAD:
+            drills.add_pad(element.hole_size, element.text)
+        elif element.type == pcbfile4_types.ElementType.VIA:
+            drills.add_via(element.hole_size)
+        elif element.type == pcbfile4_types.ElementType.COMP:
+            for primitive in element.primitives:
+                if primitive.type == pcbfile4_types.ElementType.PAD or primitive.type == pcbfile4_types.ElementType.VIA:
+                    drills.add_comp_hole(element.pattern, element.designator.text, element.comment.text, primitive.hole_size)
+
+def get_readable_size(hole_size, compacted):
+    mm = hole_size * 2.54 / 100
+    if compacted:
+        return "%.1f mm / %u mil" % (mm, hole_size)
+    else:
+        return "%.1f mm / %3u mil" % (mm, hole_size)
+
+def dump_drills(drills):
+    print("=== Drill summary ===")
+
+    drill_idx = 1
+    for hole_size in sorted(drills.get_drills()):
+        drill = drills.get_drills()[hole_size]
+        print("%u. %s: %3u holes" % (drill_idx, get_readable_size(hole_size, False), drill.get_hole_count()))
+        drill_idx = drill_idx + 1
+
+    drill_idx = 1
+    for hole_size in sorted(drills.get_drills()):
+        print("")
+
+        drill = drills.get_drills()[hole_size]
+        print("=== Drill details for drill %u (%s) with %u holes ===" % (drill_idx, get_readable_size(hole_size, True), drill.get_hole_count()))
+        drill_idx = drill_idx + 1
+        idx = 1
+
+        for component_idx in sorted(drill.get_components()):
+            component = drill.get_components()[component_idx]
+            print("%u. %2u holes in %s (%s, %s)" % (idx, component.get_hole_count(), component.get_designator(), component.get_pattern(), component.get_comment()))
+            idx = idx + 1
+
+        for pad in sorted(drill.get_pads()):
+            print("%u. Free pad: %s" % (idx, pad))
+            idx = idx + 1
+
+        if drill.get_vias_count() != 0:
+            print("%u. %2u free vias" % (idx, drill.get_vias_count()))
+
+pcb = load_pcb(sys.argv)
+drills = Drills()
+add_elements(drills, pcb)
+dump_drills(drills)

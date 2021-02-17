@@ -1,0 +1,12 @@
+#!/usr/bin/env python3
+
+import sys
+
+def mil2mm(mil):
+    print("%u mil = %.3f mm" % (mil, mil * 2.54 / 100))
+
+if len(sys.argv) < 2:
+    sys.exit("Usage: pcb-mil2mm <mil> [<mil>...]")
+
+for arg in sys.argv[1:]:
+    mil2mm(int(arg))
